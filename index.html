@@ -179,20 +179,20 @@
                 </div>
             </div>
 
-            <!-- Detailansicht -->
+            <!-- Detailansicht mit Bearbeitungs- und Buchungsfunktion -->
             <div id="modal-detail-view" class="hidden flex-1 flex-col overflow-y-auto pr-2 pb-4"></div>
 
             <div id="modal-haushalt-view" class="hidden flex-1 flex-col overflow-hidden">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 bg-gray-50 dark:bg-slate-700/50 p-3 rounded-xl border border-gray-200 dark:border-slate-600">
                     <select id="haushalt-filter" onchange="renderHaushaltTable()" class="border border-gray-300 dark:border-slate-500 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-purple-500 bg-white dark:bg-slate-600 dark:text-white">
-                        <option value="all">Alle Einträge</option>
-                        <option value="monthly">Nur monatlich</option>
-                        <option value="yearly">Nur jährlich</option>
-                        <option value="once">Nur einmalig</option>
+                        <option value="all">Alle Einträge anzeigen</option>
+                        <option value="monthly">Nur monatliche Einträge</option>
+                        <option value="yearly">Nur jährliche Einträge</option>
+                        <option value="once">Nur einmalige Einträge</option>
                     </select>
                     <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200 cursor-pointer">
                         <input type="checkbox" id="toggle-yearly-saldo" onchange="toggleYearlySaldo(this)" class="rounded text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer">
-                        <span class="select-none">Jahresbeträge umlegen (1/12)</span>
+                        <span class="select-none">Jahresbeträge im Saldo berücksichtigen (1/12)</span>
                     </label>
                 </div>
 
@@ -291,7 +291,7 @@
             <div class="space-y-4 mb-6">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Titel</label>
-                    <input type="text" id="new-cat-name" placeholder="z.B. Dokumente" class="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500">
+                    <input type="text" id="new-cat-name" placeholder="z.B. KFZ-Verträge" class="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500">
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Typ</label>
@@ -354,10 +354,7 @@
         //  WICHTIGE EINSTELLUNGEN: API KEYS
         // ==========================================
         const GOOGLE_CLIENT_ID = "283091189174-l8m98d0jqeqbcseir1lchnj80t7066ar.apps.googleusercontent.com"; 
-        
-        // Gemini API Key (für die PDF Analyse)
-        const GEMINI_API_KEY = "AQ.Ab8RN6J98MeEvhaBSr_aHy7GwgWN2ewhM2Z4Vfm9Sc-htTeq0w"; // Platzhalter / Dein Key
-        
+        const GEMINI_API_KEY = "AQ.Ab8RN6J98MeEvhaBSr_aHy7GwgWN2ewhM2Z4Vfm9Sc-htTeq0w"; 
         const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
         // ==========================================
@@ -372,17 +369,17 @@
         let currentCategory = '';
         let currentModalTitle = '';
 
+        // Angepasst: Nur noch 1x Dokumente & 1x Haushaltsliste als Standard
         const defaultDashboardData = {
-            settings: { dashboardTitle: "Mein Dashboard" },
+            settings: { dashboardTitle: "Mein Dashboard", includeYearlyInSaldo: false },
             colors: {},
             images: {},
             categories: [
-                { id: "cat_1", type: "document", name: "Versicherungen", desc: "Übersicht aller Policen", icon: "fa-shield-halved", color: "blue" },
-                { id: "cat_2", type: "document", name: "Haus Trittau", desc: "Gewerke & Dienstleister", icon: "fa-house", color: "amber" },
-                { id: "cat_3", type: "budget", name: "Haushaltsliste", desc: "Einnahmen & Ausgaben", icon: "fa-wallet", color: "purple" }
+                { id: "cat_doc", type: "document", name: "Allgemeine Dokumente", desc: "Verträge, Rechnungen & Policen", icon: "fa-folder-open", color: "blue" },
+                { id: "cat_budget", type: "budget", name: "Haushaltsliste", desc: "Übersicht der Finanzen", icon: "fa-wallet", color: "purple" }
             ],
-            items: {}, // Speichert die Dokumente pro Kategorie: { "cat_1": [ {id, name, info, details, fileId, webViewLink} ] }
-            budget: [] // Speichert die Haushaltsbuch-Einträge
+            items: {}, 
+            budget: [] 
         };
 
         let dashboardData = JSON.parse(JSON.stringify(defaultDashboardData));
@@ -421,11 +418,10 @@
         };
 
         // ==========================================
-        //  GOOGLE DRIVE FILE SYSTEM (REST API via Fetch)
+        //  GOOGLE DRIVE FILE SYSTEM
         // ==========================================
         async function initializeDriveStorage() {
             try {
-                // 1. Finde oder erstelle den "Haushaltsplanung" Ordner
                 let qFolder = encodeURIComponent("mimeType='application/vnd.google-apps.folder' and name='Haushaltsplanung' and trashed=false");
                 let resFolder = await fetch(`https://www.googleapis.com/drive/v3/files?q=${qFolder}`, {
                     headers: { Authorization: `Bearer ${accessToken}` }
@@ -444,7 +440,6 @@
                     appFolderId = newFolder.id;
                 }
 
-                // 2. Finde oder erstelle "data.json"
                 let qFile = encodeURIComponent(`'${appFolderId}' in parents and name='data.json' and trashed=false`);
                 let resFile = await fetch(`https://www.googleapis.com/drive/v3/files?q=${qFile}`, {
                     headers: { Authorization: `Bearer ${accessToken}` }
@@ -453,21 +448,15 @@
 
                 if (dataFileSearch.files && dataFileSearch.files.length > 0) {
                     dataFileId = dataFileSearch.files[0].id;
-                    // Lade Inhalt herunter
                     let fileContentRes = await fetch(`https://www.googleapis.com/drive/v3/files/${dataFileId}?alt=media`, {
                         headers: { Authorization: `Bearer ${accessToken}` }
                     });
                     let loadedData = await fileContentRes.json();
-                    
-                    // Führe vorhandene Daten mit defaultData zusammen, um Fehler zu vermeiden
                     dashboardData = { ...defaultDashboardData, ...loadedData };
                 } else {
-                    // Speichere Initiale Defaults
                     await saveDataToCloud();
                 }
-
                 renderDashboard();
-
             } catch (error) {
                 showError("Fehler beim Initialisieren von Google Drive: " + error.message);
             }
@@ -478,11 +467,8 @@
             try {
                 const fileContent = JSON.stringify(dashboardData);
                 const metadata = { name: 'data.json', mimeType: 'application/json' };
+                if (!dataFileId) metadata.parents = [appFolderId];
                 
-                if (!dataFileId) {
-                    metadata.parents = [appFolderId];
-                }
-
                 const form = new FormData();
                 form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
                 form.append('file', new Blob([fileContent], { type: 'application/json' }));
@@ -498,8 +484,7 @@
                 });
                 
                 let result = await res.json();
-                if (!dataFileId) dataFileId = result.id; // Beim ersten Erstellen merken
-
+                if (!dataFileId) dataFileId = result.id;
             } catch (error) {
                 console.error("Fehler beim Speichern:", error);
             }
@@ -529,20 +514,28 @@
             
             const grid = document.getElementById('category-grid');
             const addNewBtn = document.getElementById('add-new-cat-btn');
-            
-            // Vorherige Karten löschen
             document.querySelectorAll('.dynamic-card').forEach(c => c.remove());
 
             dashboardData.categories.forEach(cat => {
                 const tempDiv = document.createElement('div');
                 
                 if (cat.type === 'budget') {
-                    // Budget Card (Haushaltsliste)
+                    // Haushaltsbuch Logik & Durchschnittsberechnung
                     let einnahmen = 0, ausgaben = 0;
+                    const includeYearly = dashboardData.settings && dashboardData.settings.includeYearlyInSaldo === true;
+
                     (dashboardData.budget || []).forEach(b => {
-                        if (b.type === 'income') einnahmen += b.amount;
-                        else ausgaben += b.amount; // Simplifiziert für Übersicht
+                        if (b.amount !== undefined && !isNaN(b.amount)) {
+                            let monthlyAmount = b.amount;
+                            if (b.freq === 'yearly') {
+                                monthlyAmount = includeYearly ? (b.amount / 12) : 0;
+                            }
+                            if (b.type === 'income') einnahmen += monthlyAmount; 
+                            else ausgaben += monthlyAmount;
+                        }
                     });
+                    
+                    let saldo = einnahmen - ausgaben;
                     
                     tempDiv.innerHTML = `
                         <section id="card-${cat.id}" class="dynamic-card bg-white rounded-2xl p-6 border border-gray-100 shadow-sm card-transition flex flex-col h-full">
@@ -555,22 +548,23 @@
                                             <input type="color" class="absolute -top-2 -left-2 w-8 h-8 cursor-pointer opacity-0" onchange="updateCardColor(this, 'card-${cat.id}')">
                                         </div>
                                     </label>
-                                    <button onclick="deleteCategory('${cat.id}')" class="text-xs text-red-400 hover:text-red-600"><i class="fa-solid fa-trash"></i> Löschen</button>
+                                    <span class="text-xs font-semibold px-3 py-1 bg-${cat.color}-50 text-${cat.color}-600 rounded-full">Ø Saldo: ${saldo >= 0 ? '+' : ''} ${saldo.toLocaleString('de-DE', {minimumFractionDigits: 2})} €</span>
                                 </div>
                             </div>
                             <h2 class="text-xl font-semibold text-gray-900 mb-3" contenteditable="true" onblur="updateCategoryName('${cat.id}', this)" title="Klicken zum Umbenennen">${cat.name}</h2>
                             <div class="space-y-2 mb-4">
-                                <div class="flex justify-between items-center bg-green-50 px-3 py-2 rounded-lg"><span class="text-sm text-green-700">Einnahmen</span><span class="text-sm font-bold text-green-700">+ ${einnahmen.toLocaleString('de-DE')} €</span></div>
-                                <div class="flex justify-between items-center bg-red-50 px-3 py-2 rounded-lg"><span class="text-sm text-red-700">Ausgaben</span><span class="text-sm font-bold text-red-700">- ${ausgaben.toLocaleString('de-DE')} €</span></div>
+                                <div class="flex justify-between items-center bg-green-50 px-3 py-2 rounded-lg"><span class="text-sm text-green-700">Einnahmen</span><span class="text-sm font-bold text-green-700">+ ${einnahmen.toLocaleString('de-DE', {minimumFractionDigits: 2})} € / Mtl.</span></div>
+                                <div class="flex justify-between items-center bg-red-50 px-3 py-2 rounded-lg"><span class="text-sm text-red-700">Ausgaben</span><span class="text-sm font-bold text-red-700">- ${ausgaben.toLocaleString('de-DE', {minimumFractionDigits: 2})} € / Mtl.</span></div>
                             </div>
-                            <div class="mt-auto">
-                                <button onclick="openManageModal('${cat.id}', 'budget')" class="w-full py-3 px-4 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors flex justify-between items-center group">
-                                    <span>Tabelle öffnen</span><i class="fa-solid fa-table-list text-gray-400 group-hover:text-${cat.color}-500"></i>
+                            <div class="mt-auto flex gap-2">
+                                <button onclick="openManageModal('${cat.id}', 'budget')" class="flex-1 py-3 px-4 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors flex justify-center items-center group gap-2">
+                                    <i class="fa-solid fa-table-list text-gray-400 group-hover:text-${cat.color}-500"></i> Tabelle öffnen
                                 </button>
+                                <button onclick="deleteCategory('${cat.id}')" class="px-4 py-3 border border-gray-200 rounded-xl text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"><i class="fa-solid fa-trash"></i></button>
                             </div>
                         </section>`;
                 } else {
-                    // Standard Document Card
+                    // Dokumenten Card
                     tempDiv.innerHTML = `
                         <section id="card-${cat.id}" class="dynamic-card bg-white rounded-2xl p-6 border border-gray-100 shadow-sm card-transition flex flex-col h-full">
                             <div class="flex items-start justify-between mb-4">
@@ -586,23 +580,22 @@
                                         <img id="img-${cat.id}" src="https://placehold.co/120x80/e2e8f0/64748b?text=Bild" class="h-10 w-16 rounded-lg object-cover shadow-sm transition-opacity group-hover/img:opacity-50">
                                         <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity bg-black/30 rounded-lg backdrop-blur-[1px]"><i class="fa-solid fa-camera text-white text-xs"></i></div>
                                     </div>
-                                    <button onclick="deleteCategory('${cat.id}')" class="text-xs text-red-400 hover:text-red-600 mt-1"><i class="fa-solid fa-trash"></i></button>
                                 </div>
                             </div>
                             <h2 class="text-xl font-semibold text-gray-900 mb-1" contenteditable="true" onblur="updateCategoryName('${cat.id}', this)" title="Klicken zum Umbenennen">${cat.name}</h2>
                             <p class="text-gray-500 text-sm mb-4" contenteditable="true" onblur="updateCategoryDesc('${cat.id}', this)">${cat.desc}</p>
                             
-                            <div class="mt-auto">
-                                <button onclick="openManageModal('${cat.id}', 'document')" class="w-full py-3 px-4 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors flex justify-between items-center group">
-                                    <span>Verwalten (${(dashboardData.items[cat.id] || []).length})</span>
-                                    <i class="fa-solid fa-list-ul text-gray-400 group-hover:text-${cat.color}-500"></i>
+                            <div class="mt-auto flex gap-2">
+                                <button onclick="openManageModal('${cat.id}', 'document')" class="flex-1 py-3 px-4 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors flex justify-center items-center group gap-2">
+                                    <i class="fa-solid fa-list-ul text-gray-400 group-hover:text-${cat.color}-500"></i> Einträge (${(dashboardData.items[cat.id] || []).length})
                                 </button>
+                                <button onclick="deleteCategory('${cat.id}')" class="px-4 py-3 border border-gray-200 rounded-xl text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"><i class="fa-solid fa-trash"></i></button>
                             </div>
                         </section>`;
                 }
                 grid.insertBefore(tempDiv.firstChild, addNewBtn);
             });
-            applySavedImages(); // Images nach dem Rendern anwenden
+            applySavedImages(); 
         }
 
         window.updateCategoryName = function(catId, el) {
@@ -627,16 +620,10 @@
         window.saveNewCategory = function() {
             const name = document.getElementById('new-cat-name').value.trim();
             if (!name) return;
-            
             const newCat = {
-                id: 'cat_' + Date.now(),
-                type: document.getElementById('new-cat-type').value,
-                name: name,
-                desc: "Neue Kategorie",
-                color: document.getElementById('new-cat-color').value,
-                icon: document.getElementById('new-cat-icon').value
+                id: 'cat_' + Date.now(), type: document.getElementById('new-cat-type').value,
+                name: name, desc: "Neu angelegt", color: document.getElementById('new-cat-color').value, icon: document.getElementById('new-cat-icon').value
             };
-            
             dashboardData.categories.push(newCat);
             saveDataToCloud();
             closeAddCategoryModal();
@@ -664,13 +651,11 @@
             overlay.classList.remove('hidden');
             
             try {
-                // 1. Upload in Drive
                 statusText.innerText = "1/3: Lade PDF sicher in Google Drive...";
                 const driveResult = await uploadFileToDrive(file);
                 const fileId = driveResult.id;
                 const webViewLink = driveResult.webViewLink;
 
-                // 2. Erstelle dynamischen Prompt basierend auf vorhandenen Kategorien
                 statusText.innerText = "2/3: Analysiere mit Gemini KI...";
                 const base64Data = await fileToBase64(file);
                 
@@ -706,18 +691,12 @@
                 rawText = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
                 const aiResult = JSON.parse(rawText);
 
-                // Absicherung für ID
                 let targetCatId = aiResult.categoryId;
-                if (!dashboardData.items[targetCatId]) targetCatId = docCategories[0].id; // Fallback
+                if (!dashboardData.items[targetCatId]) targetCatId = docCategories[0].id; 
 
                 const newItem = {
-                    id: Date.now(),
-                    name: aiResult.name || file.name,
-                    info: aiResult.info || 'Automatisch verarbeitet',
-                    icon: "fa-file-pdf",
-                    fileId: fileId, 
-                    webViewLink: webViewLink,
-                    details: aiResult.details || []
+                    id: Date.now(), name: aiResult.name || file.name, info: aiResult.info || 'Automatisch verarbeitet',
+                    icon: "fa-file-pdf", fileId: fileId, webViewLink: webViewLink, details: aiResult.details || []
                 };
 
                 if(!dashboardData.items[targetCatId]) dashboardData.items[targetCatId] = [];
@@ -739,7 +718,7 @@
         };
 
         // ==========================================
-        //  MODAL LOGIK (Listen, Haushalt)
+        //  MODAL LOGIK & BEARBEITUNGEN
         // ==========================================
         window.openManageModal = function(catId, type) {
             currentCategory = catId;
@@ -756,6 +735,11 @@
                 document.getElementById('modal-haushalt-view').classList.remove('hidden');
                 document.getElementById('modal-haushalt-view').classList.add('flex');
                 document.getElementById('new-hh-date').valueAsDate = new Date();
+                
+                // Setze Checkbox Zustand
+                const includeYearly = dashboardData.settings && dashboardData.settings.includeYearlyInSaldo === true;
+                document.getElementById('toggle-yearly-saldo').checked = includeYearly;
+                
                 renderHaushaltTable();
             } else {
                 document.getElementById('modal-haushalt-view').classList.add('hidden');
@@ -802,11 +786,22 @@
             document.getElementById('modal-back-btn').classList.remove('hidden');
             document.getElementById('modal-title').innerText = item.name;
 
+            let suggestedAmount = '';
             let detailsHTML = '<div class="bg-gray-50 dark:bg-slate-700/50 rounded-xl p-5 border border-gray-100 dark:border-slate-600 space-y-4 mb-auto relative">';
+            
+            // Bearbeiten Button
+            detailsHTML += `<button onclick="editItemDetails(${id})" class="absolute top-4 right-4 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors p-2" title="Eintrag bearbeiten"><i class="fa-solid fa-pen-to-square text-lg"></i></button>`;
+
             if (item.details && item.details.length > 0) {
                 item.details.forEach(d => {
                     detailsHTML += `<div class="pr-8"><p class="text-xs text-gray-500 font-medium mb-1 uppercase">${d.label}</p><p class="text-sm font-semibold text-gray-900 dark:text-white">${d.value}</p></div>`;
+                    if (d.value.includes('€') || d.value.includes('EUR')) {
+                        let match = d.value.match(/[\d.,]+/);
+                        if(match && !suggestedAmount) suggestedAmount = match[0];
+                    }
                 });
+            } else {
+                detailsHTML += `<div class="flex flex-col items-center justify-center py-6 text-gray-400"><p class="text-sm">Keine Details hinterlegt.</p></div>`;
             }
             detailsHTML += '</div>';
 
@@ -814,12 +809,157 @@
                 detailsHTML += `
                     <div class="mt-4">
                         <a href="${item.webViewLink}" target="_blank" class="flex items-center justify-center gap-2 w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-semibold py-3 px-4 rounded-xl transition-colors border border-indigo-200">
-                            <i class="fa-brands fa-google-drive"></i> In Google Drive öffnen
+                            <i class="fa-brands fa-google-drive"></i> In Google Drive ansehen
                         </a>
                     </div>
                 `;
             }
+
+            // NEU: Direkt ins Haushaltsbuch buchen Funktion wiederhergestellt
+            detailsHTML += `
+                <div class="mt-4 bg-purple-50 dark:bg-purple-900/10 p-5 rounded-xl border border-purple-100 dark:border-purple-800/30">
+                    <label class="block text-xs font-semibold text-purple-700 dark:text-purple-400 mb-3 uppercase tracking-wide">
+                        <i class="fa-solid fa-wallet mr-1"></i> Direkt ins Haushaltsbuch eintragen
+                    </label>
+                    <div class="flex flex-col sm:flex-row gap-2">
+                        <input type="date" id="transfer-date-${item.id}" value="${new Date().toISOString().split('T')[0]}" class="w-full sm:w-auto border border-purple-200 dark:border-slate-600 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-purple-500 dark:bg-slate-700 dark:text-white" title="Abbuchungsdatum">
+                        <input type="text" id="transfer-amount-${item.id}" placeholder="Betrag (€)" value="${suggestedAmount}" class="w-full sm:w-1/4 border border-purple-200 dark:border-slate-600 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-purple-500 dark:bg-slate-700 dark:text-white">
+                        <select id="transfer-type-${item.id}" class="w-full sm:w-1/4 border border-purple-200 dark:border-slate-600 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-purple-500 dark:bg-slate-700 dark:text-white">
+                            <option value="expense">Ausgabe (-)</option>
+                            <option value="income">Einnahme (+)</option>
+                        </select>
+                        <select id="transfer-freq-${item.id}" class="w-full sm:w-1/4 border border-purple-200 dark:border-slate-600 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-purple-500 dark:bg-slate-700 dark:text-white">
+                            <option value="monthly">Monatlich</option>
+                            <option value="yearly">Jährlich</option>
+                            <option value="once">Einmalig</option>
+                        </select>
+                        <button onclick="bookToHaushalt(${item.id})" class="w-full sm:w-auto bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 px-4 rounded-xl transition-colors shadow-sm text-sm whitespace-nowrap">
+                            Buchen
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            // NEU: Verschieben in andere Dokumenten-Kategorie
+            const moveOptions = dashboardData.categories.filter(c => c.type === 'document').map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+            
+            detailsHTML += `
+                <div class="mt-4 pt-4 border-t border-gray-100 dark:border-slate-600">
+                    <label class="block text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">In andere Kategorie verschieben:</label>
+                    <div class="flex gap-2">
+                        <select id="move-category-select" class="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white dark:bg-slate-700 dark:text-white dark:border-slate-600">
+                            ${moveOptions}
+                        </select>
+                        <button onclick="moveCurrentItem(${item.id})" class="bg-gray-100 hover:bg-gray-200 dark:bg-slate-600 dark:hover:bg-slate-500 text-gray-700 dark:text-white font-medium py-2 px-4 rounded-xl transition-colors text-sm border border-gray-200 dark:border-slate-500 shadow-sm">
+                            Verschieben
+                        </button>
+                    </div>
+                </div>
+            `;
+
             document.getElementById('modal-detail-view').innerHTML = detailsHTML;
+        };
+
+        window.editItemDetails = function(id) {
+            const item = dashboardData.items[currentCategory].find(i => i.id === id);
+            if(!item) return;
+
+            let editHTML = '<div class="bg-gray-50 dark:bg-slate-700/50 rounded-xl p-5 border border-gray-100 dark:border-slate-600 space-y-4 mb-auto">';
+            editHTML += `<div><label class="block text-xs font-semibold text-gray-500 mb-1 uppercase">Titel des Dokuments</label><input type="text" id="edit-item-name" value="${(item.name || '').replace(/"/g, '&quot;')}" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 dark:bg-slate-700 dark:text-white dark:border-slate-600"></div>`;
+            editHTML += `<div><label class="block text-xs font-semibold text-gray-500 mb-1 uppercase">Kurzinfo (unter dem Titel)</label><input type="text" id="edit-item-info" value="${(item.info || '').replace(/"/g, '&quot;')}" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 dark:bg-slate-700 dark:text-white dark:border-slate-600"></div>`;
+            editHTML += `<div><label class="block text-xs font-semibold text-gray-500 mb-2 uppercase">Extrahierte Details</label><div id="edit-details-container" class="space-y-2">`;
+            
+            if(item.details && item.details.length > 0) {
+                item.details.forEach(d => {
+                    editHTML += `<div class="flex gap-2 detail-row items-center"><input type="text" placeholder="Feld (z.B. Betrag)" value="${(d.label || '').replace(/"/g, '&quot;')}" class="w-1/3 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 dark:bg-slate-700 dark:text-white dark:border-slate-600 detail-label"><input type="text" placeholder="Wert" value="${(d.value || '').replace(/"/g, '&quot;')}" class="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 dark:bg-slate-700 dark:text-white dark:border-slate-600 detail-value"><button onclick="this.parentElement.remove()" class="text-red-400 hover:text-red-600 p-2"><i class="fa-solid fa-trash"></i></button></div>`;
+                });
+            }
+            
+            editHTML += `</div><button onclick="addDetailRow()" class="mt-3 text-sm text-indigo-600 dark:text-indigo-400 font-medium hover:underline flex items-center gap-1"><i class="fa-solid fa-plus"></i> Neues Detail hinzufügen</button></div></div>`;
+            
+            editHTML += `
+                <div class="mt-6 flex gap-3">
+                    <button onclick="showItemDetails(${id})" class="flex-1 bg-gray-200 hover:bg-gray-300 dark:bg-slate-600 dark:hover:bg-slate-500 text-gray-700 dark:text-white font-semibold py-3 px-4 rounded-xl transition-colors">Abbrechen</button>
+                    <button onclick="saveItemDetails(${id})" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-4 rounded-xl transition-colors shadow-lg shadow-indigo-200">Speichern</button>
+                </div>
+            `;
+            document.getElementById('modal-detail-view').innerHTML = editHTML;
+        };
+
+        window.addDetailRow = function() {
+            const container = document.getElementById('edit-details-container');
+            const row = document.createElement('div');
+            row.className = 'flex gap-2 detail-row items-center animate-fade-in';
+            row.innerHTML = `<input type="text" placeholder="Feld (z.B. Betrag)" class="w-1/3 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 dark:bg-slate-700 dark:text-white dark:border-slate-600 detail-label"><input type="text" placeholder="Wert" class="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 dark:bg-slate-700 dark:text-white dark:border-slate-600 detail-value"><button onclick="this.parentElement.remove()" class="text-red-400 hover:text-red-600 p-2"><i class="fa-solid fa-trash"></i></button>`;
+            container.appendChild(row);
+        };
+
+        window.saveItemDetails = function(id) {
+            const item = dashboardData.items[currentCategory].find(i => i.id === id);
+            if(!item) return;
+
+            item.name = document.getElementById('edit-item-name').value.trim() || 'Unbenannt';
+            item.info = document.getElementById('edit-item-info').value.trim();
+            const detailRows = document.querySelectorAll('.detail-row');
+            const newDetails = [];
+            detailRows.forEach(row => {
+                const label = row.querySelector('.detail-label').value.trim();
+                const value = row.querySelector('.detail-value').value.trim();
+                if(label || value) newDetails.push({ label: label, value: value });
+            });
+            item.details = newDetails;
+
+            saveDataToCloud(); 
+            renderModalList(); 
+            showItemDetails(id); 
+        };
+
+        window.moveCurrentItem = function(id) {
+            const newCategory = document.getElementById('move-category-select').value;
+            if (newCategory === currentCategory) return; 
+            
+            const itemIndex = dashboardData.items[currentCategory].findIndex(i => i.id === id);
+            if (itemIndex > -1) {
+                const item = dashboardData.items[currentCategory].splice(itemIndex, 1)[0];
+                if (!dashboardData.items[newCategory]) dashboardData.items[newCategory] = [];
+                dashboardData.items[newCategory].push(item);
+                
+                saveDataToCloud();
+                document.getElementById('success-message').innerText = "Dokument erfolgreich verschoben!";
+                document.getElementById('success-modal').classList.remove('hidden');
+                
+                backToList();
+                renderModalList();
+                renderDashboard();
+            }
+        };
+
+        window.bookToHaushalt = function(id) {
+            const item = (dashboardData.items[currentCategory] || []).find(i => i.id === id);
+            if(!item) return;
+
+            const dateStr = document.getElementById(`transfer-date-${id}`).value;
+            const amountStr = document.getElementById(`transfer-amount-${id}`).value;
+            const type = document.getElementById(`transfer-type-${id}`).value;
+            const freq = document.getElementById(`transfer-freq-${id}`).value;
+            
+            const amount = parseFloat(amountStr.replace(/\./g, '').replace(',', '.').replace(/[^0-9.-]/g, ''));
+
+            if(isNaN(amount) || amount <= 0 || !dateStr) {
+                alert("Bitte ein gültiges Datum und einen Betrag eingeben.");
+                return;
+            }
+
+            if(!dashboardData.budget) dashboardData.budget = [];
+            dashboardData.budget.push({
+                id: Date.now(), date: dateStr, desc: item.name, type: type, freq: freq, amount: amount
+            });
+
+            saveDataToCloud();
+            renderDashboard(); // Aktualisiert die Zahlen auf der Karte im Hintergrund
+            
+            document.getElementById('success-message').innerText = `Der Betrag von ${amount.toLocaleString('de-DE', {minimumFractionDigits:2})} € wurde erfolgreich ins Haushaltsbuch eingetragen!`;
+            document.getElementById('success-modal').classList.remove('hidden');
         };
 
         window.addNewItem = function() {
@@ -839,7 +979,6 @@
             event.stopPropagation(); 
             const item = dashboardData.items[currentCategory].find(i => i.id === id);
             
-            // PDF auch aus Drive löschen
             if (item && item.fileId) {
                 try {
                     await fetch(`https://www.googleapis.com/drive/v3/files/${item.fileId}`, {
@@ -871,19 +1010,39 @@
             const filterFreq = document.getElementById('haushalt-filter').value;
             
             let validItems = dashboardData.budget || [];
-            if (filterFreq !== 'all') validItems = validItems.filter(i => i.freq === filterFreq);
+            if (filterFreq !== 'all') validItems = validItems.filter(i => (i.freq || 'once') === filterFreq);
             const sorted = validItems.sort((a, b) => new Date(b.date) - new Date(a.date));
             
             if (sorted.length === 0) return tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-sm text-gray-500">Keine Buchungen vorhanden.</td></tr>';
 
             sorted.forEach(item => {
                 const tr = document.createElement('tr');
+                tr.className = 'group hover:bg-gray-50 dark:hover:bg-slate-700/30 transition-colors';
+                
                 const amtClass = item.type === 'income' ? 'text-green-600' : 'text-red-600';
                 const amtStr = `${item.type === 'income' ? '+' : '-'} ${item.amount.toLocaleString('de-DE', {minimumFractionDigits:2})} €`;
                 
+                let freqBadge = '';
+                const freq = item.freq || 'once';
+                if (freq === 'monthly') freqBadge = '<span class="px-2 py-0.5 text-[10px] bg-blue-100 text-blue-700 rounded-full whitespace-nowrap">Monatlich</span>';
+                else if (freq === 'yearly') {
+                    const dateObj = new Date(item.date);
+                    const dayMonth = dateObj.toLocaleDateString('de-DE', {day: '2-digit', month: '2-digit'});
+                    freqBadge = `<span class="px-2 py-0.5 text-[10px] bg-orange-100 text-orange-700 rounded-full whitespace-nowrap">Jährl. am ${dayMonth}</span>`;
+                }
+                else freqBadge = '<span class="px-2 py-0.5 text-[10px] bg-gray-100 text-gray-600 rounded-full whitespace-nowrap">Einmalig</span>';
+
                 tr.innerHTML = `
                     <td class="p-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">${new Date(item.date).toLocaleDateString('de-DE')}</td>
-                    <td class="p-3 text-sm text-gray-900 dark:text-white font-medium">${item.desc}</td>
+                    <td class="p-3 text-sm text-gray-900 dark:text-white font-medium">
+                        <div class="flex items-center gap-2">
+                            <span>${item.desc}</span>
+                            <button onclick="editHaushaltDesc(${item.id})" class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-purple-600 transition-all" title="Beschreibung ändern">
+                                <i class="fa-solid fa-pen text-xs"></i>
+                            </button>
+                        </div>
+                        <div class="mt-1">${freqBadge}</div>
+                    </td>
                     <td class="p-3 text-sm text-right font-bold ${amtClass} whitespace-nowrap">${amtStr}</td>
                     <td class="p-3 text-center"><button onclick="deleteHaushaltItem(${item.id})" class="text-gray-300 hover:text-red-500"><i class="fa-solid fa-trash"></i></button></td>
                 `;
@@ -914,6 +1073,24 @@
             saveDataToCloud();
             renderHaushaltTable();
             renderDashboard();
+        };
+
+        window.editHaushaltDesc = function(id) {
+            const item = dashboardData.budget.find(i => i.id === id);
+            if (!item) return;
+            const newDesc = prompt("Neue Beschreibung eingeben:", item.desc);
+            if (newDesc !== null && newDesc.trim() !== "") {
+                item.desc = newDesc.trim();
+                saveDataToCloud();
+                renderHaushaltTable();
+            }
+        };
+
+        window.toggleYearlySaldo = function(checkbox) {
+            if (!dashboardData.settings) dashboardData.settings = {};
+            dashboardData.settings.includeYearlyInSaldo = checkbox.checked;
+            saveDataToCloud();
+            renderDashboard(); // Aktualisiert die Durchschnittszahlen auf der Karte
         };
 
         // ==========================================
