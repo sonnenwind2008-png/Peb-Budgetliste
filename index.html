@@ -293,13 +293,6 @@
                     <label class="block text-sm font-medium text-gray-700 mb-1">Titel</label>
                     <input type="text" id="new-cat-name" placeholder="z.B. KFZ-Verträge" class="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500">
                 </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Typ</label>
-                    <select id="new-cat-type" class="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none">
-                        <option value="document">Dokumente (Listenansicht)</option>
-                        <option value="budget">Finanzen (Haushaltsbuch)</option>
-                    </select>
-                </div>
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Farbe</label>
@@ -557,10 +550,10 @@
                                 <div class="flex justify-between items-center bg-red-50 px-3 py-2 rounded-lg"><span class="text-sm text-red-700">Ausgaben</span><span class="text-sm font-bold text-red-700">- ${ausgaben.toLocaleString('de-DE', {minimumFractionDigits: 2})} € / Mtl.</span></div>
                             </div>
                             <div class="mt-auto flex gap-2">
-                                <button onclick="openManageModal('${cat.id}', 'budget')" class="flex-1 py-3 px-4 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors flex justify-center items-center group gap-2">
+                                <button onclick="openManageModal('${cat.id}', 'budget')" class="w-full py-3 px-4 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors flex justify-center items-center group gap-2">
                                     <i class="fa-solid fa-table-list text-gray-400 group-hover:text-${cat.color}-500"></i> Tabelle öffnen
                                 </button>
-                                <button onclick="deleteCategory('${cat.id}')" class="px-4 py-3 border border-gray-200 rounded-xl text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"><i class="fa-solid fa-trash"></i></button>
+                                <!-- Haushaltsbuch ist fest und hat keinen Löschen-Button mehr -->
                             </div>
                         </section>`;
                 } else {
@@ -609,6 +602,11 @@
         }
 
         window.deleteCategory = function(catId) {
+            const cat = dashboardData.categories.find(c => c.id === catId);
+            if (cat && cat.type === 'budget') {
+                alert("Das Haushaltsbuch ist eine feste Kategorie und kann nicht gelöscht werden.");
+                return;
+            }
             if(confirm("Kategorie und alle enthaltenen Einträge wirklich löschen?")) {
                 dashboardData.categories = dashboardData.categories.filter(c => c.id !== catId);
                 delete dashboardData.items[catId];
@@ -617,17 +615,29 @@
             }
         }
 
-        window.saveNewCategory = function() {
+        window.saveNewCategory = async function() {
             const name = document.getElementById('new-cat-name').value.trim();
             if (!name) return;
+            
+            const newCatId = 'cat_' + Date.now();
             const newCat = {
-                id: 'cat_' + Date.now(), type: document.getElementById('new-cat-type').value,
-                name: name, desc: "Neu angelegt", color: document.getElementById('new-cat-color').value, icon: document.getElementById('new-cat-icon').value
+                id: newCatId, 
+                type: 'document', // Ab jetzt immer automatisch ein Dokumenten-Ordner
+                name: name, 
+                desc: "Neu angelegt", 
+                color: document.getElementById('new-cat-color').value, 
+                icon: document.getElementById('new-cat-icon').value
             };
+            
             dashboardData.categories.push(newCat);
-            saveDataToCloud();
+            if (!dashboardData.items) dashboardData.items = {};
+            dashboardData.items[newCatId] = []; // Leeres Array für die neuen Dokumente anlegen (Behebt den Hänger!)
+            
             closeAddCategoryModal();
-            renderDashboard();
+            document.getElementById('new-cat-name').value = ''; // Feld wieder leeren
+            
+            renderDashboard(); // Direkt anzeigen (fühlt sich sofort an)
+            await saveDataToCloud(); // Im Hintergrund speichern
         }
 
         // ==========================================
