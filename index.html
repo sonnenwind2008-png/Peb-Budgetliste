@@ -446,6 +446,14 @@
                     });
                     let loadedData = await fileContentRes.json();
                     dashboardData = { ...defaultDashboardData, ...loadedData };
+                    
+                    // Sicherheitscheck: Garantiert, dass das Haushaltsbuch und die Kategorien-Struktur immer fest existieren
+                    if (!dashboardData.categories || !Array.isArray(dashboardData.categories)) {
+                        dashboardData.categories = [...defaultDashboardData.categories];
+                    } else if (!dashboardData.categories.find(c => c.type === 'budget')) {
+                        dashboardData.categories.push(defaultDashboardData.categories.find(c => c.type === 'budget'));
+                    }
+                    if (!dashboardData.items) dashboardData.items = {};
                 } else {
                     await saveDataToCloud();
                 }
@@ -586,7 +594,9 @@
                             </div>
                         </section>`;
                 }
-                grid.insertBefore(tempDiv.firstChild, addNewBtn);
+                
+                // BUGFIX: firstElementChild stellt sicher, dass die echte Karte und nicht ein unsichtbares Leerzeichen gezeichnet wird!
+                grid.insertBefore(tempDiv.firstElementChild, addNewBtn);
             });
             applySavedImages(); 
         }
