@@ -452,8 +452,16 @@
                     // Sicherheitscheck: Garantiert, dass das Haushaltsbuch und die Kategorien-Struktur immer fest existieren
                     if (!dashboardData.categories || !Array.isArray(dashboardData.categories)) {
                         dashboardData.categories = [...defaultDashboardData.categories];
-                    } else if (!dashboardData.categories.find(c => c.type === 'budget')) {
-                        dashboardData.categories.push(defaultDashboardData.categories.find(c => c.type === 'budget'));
+                    } else {
+                        // FIX: Bereinige versehentlich duplizierte Haushaltsbuch-Karten (Ghost-Karten)
+                        const budgetCards = dashboardData.categories.filter(c => c.type === 'budget');
+                        if (budgetCards.length > 1) {
+                            // Löscht alle Geister-Karten und behält nur das Original (cat_budget)
+                            dashboardData.categories = dashboardData.categories.filter(c => c.type !== 'budget' || c.id === 'cat_budget');
+                            saveDataToCloud(); // Cloud direkt reparieren
+                        } else if (budgetCards.length === 0) {
+                            dashboardData.categories.push(defaultDashboardData.categories.find(c => c.type === 'budget'));
+                        }
                     }
                     if (!dashboardData.items) dashboardData.items = {};
                 } else {
@@ -569,7 +577,7 @@
                                 <button onclick="openManageModal('${cat.id}', 'budget')" class="w-full py-3 px-4 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors flex justify-center items-center group gap-2">
                                     <i class="fa-solid fa-table-list text-gray-400 group-hover:text-${cat.color}-500"></i> Tabelle öffnen
                                 </button>
-                                <!-- Haushaltsbuch ist fest und hat keinen Löschen-Button mehr -->
+                                ${cat.id !== 'cat_budget' ? `<button onclick="deleteCategory('${cat.id}')" class="px-4 py-3 border border-gray-200 rounded-xl text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"><i class="fa-solid fa-trash"></i></button>` : ''}
                             </div>
                         </section>`;
                 } else {
@@ -624,8 +632,8 @@
         // FIX: Robuste Löschfunktion, die auch alte Fehler-Karten aus dem Cache sicher beseitigt
         window.deleteCategory = function(catId) {
             const cat = dashboardData.categories.find(c => String(c.id) === String(catId));
-            if (cat && cat.type === 'budget') {
-                alert("Das Haushaltsbuch ist eine feste Kategorie und kann nicht gelöscht werden.");
+            if (cat && cat.id === 'cat_budget') {
+                alert("Das originale Haushaltsbuch ist eine feste Kategorie und kann nicht gelöscht werden.");
                 return;
             }
             if(confirm("Kategorie und alle enthaltenen Einträge wirklich löschen?")) {
