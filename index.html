@@ -441,8 +441,10 @@
 
                 if (dataFileSearch.files && dataFileSearch.files.length > 0) {
                     dataFileId = dataFileSearch.files[0].id;
-                    let fileContentRes = await fetch(`https://www.googleapis.com/drive/v3/files/${dataFileId}?alt=media`, {
-                        headers: { Authorization: `Bearer ${accessToken}` }
+                    // FIX: Zwingt den Browser immer die aktuellsten Daten zu laden (kein Cache!)
+                    let fileContentRes = await fetch(`https://www.googleapis.com/drive/v3/files/${dataFileId}?alt=media&t=${Date.now()}`, {
+                        headers: { Authorization: `Bearer ${accessToken}` },
+                        cache: 'no-store'
                     });
                     let loadedData = await fileContentRes.json();
                     dashboardData = { ...defaultDashboardData, ...loadedData };
@@ -515,7 +517,13 @@
             
             const grid = document.getElementById('category-grid');
             const addNewBtn = document.getElementById('add-new-cat-btn');
-            document.querySelectorAll('.dynamic-card').forEach(c => c.remove());
+            
+            // SEHR WICHTIG: Alte Karten komplett aus dem Browser löschen (verhindert Geister-Karten)
+            Array.from(grid.children).forEach(child => {
+                if (child.id !== 'add-new-cat-btn') {
+                    child.remove();
+                }
+            });
 
             dashboardData.categories.forEach(cat => {
                 const tempDiv = document.createElement('div');
@@ -595,8 +603,10 @@
                         </section>`;
                 }
                 
-                // BUGFIX: firstElementChild stellt sicher, dass die echte Karte und nicht ein unsichtbares Leerzeichen gezeichnet wird!
-                grid.insertBefore(tempDiv.firstElementChild, addNewBtn);
+                // Sicheres Einfügen der Karte
+                if (tempDiv.firstElementChild) {
+                    grid.insertBefore(tempDiv.firstElementChild, addNewBtn);
+                }
             });
             applySavedImages(); 
         }
@@ -611,15 +621,18 @@
             if (cat) { cat.desc = el.innerText.trim(); saveDataToCloud(); }
         }
 
+        // FIX: Robuste Löschfunktion, die auch alte Fehler-Karten aus dem Cache sicher beseitigt
         window.deleteCategory = function(catId) {
-            const cat = dashboardData.categories.find(c => c.id === catId);
+            const cat = dashboardData.categories.find(c => String(c.id) === String(catId));
             if (cat && cat.type === 'budget') {
                 alert("Das Haushaltsbuch ist eine feste Kategorie und kann nicht gelöscht werden.");
                 return;
             }
             if(confirm("Kategorie und alle enthaltenen Einträge wirklich löschen?")) {
-                dashboardData.categories = dashboardData.categories.filter(c => c.id !== catId);
-                delete dashboardData.items[catId];
+                dashboardData.categories = dashboardData.categories.filter(c => String(c.id) !== String(catId));
+                if (dashboardData.items) {
+                    delete dashboardData.items[catId];
+                }
                 saveDataToCloud();
                 renderDashboard();
             }
